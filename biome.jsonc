@@ -1,0 +1,61 @@
+// .biome.json (racine)
+{
+	"$schema": "https://biomejs.dev/schemas/biome.json",
+
+	// active l’action « organizeImports » à chaque check/format
+	"assist": {
+		"actions": {
+			"source": { "organizeImports": "on" } // tri + nettoyage auto
+		}
+	},
+
+	// format + lint communs
+	"formatter": { "enabled": true },
+
+	"linter": {
+		"rules": {
+			"recommended": true,
+			"correctness": {
+				"noUnusedImports": {
+					"level": "error",
+					"fix": "safe"
+				}
+			},
+
+			"a11y": "off"
+			//			"a11y": {
+			//				"useKeyWithMouseEvents": "off",
+			//				"useKeyWithClickEvents": "off",
+			//				"useButtonType": "off",
+			//				"noStaticElementInteractions": "off",
+			//				"useSemanticElements": "off"
+			//			}
+		}
+	},
+
+	"javascript": {
+		"formatter": {
+			"enabled": true,
+			"quoteStyle": "double",
+			"semicolons": "always",
+			"trailingCommas": "all",
+			"arrowParentheses": "always",
+			"indentStyle": "space",
+			"indentWidth": 2,
+			"lineEnding": "lf",
+			"lineWidth": 140
+		}
+	},
+
+	"json": {
+		"formatter": {
+			"enabled": true
+		}
+	},
+
+	"css": {
+		"formatter": {
+			"enabled": true
+		}
+	}
+}
