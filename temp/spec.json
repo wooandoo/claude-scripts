@@ -13,20 +13,20 @@
 					"expect the result to be as expected",
 					"other assertions can be made"
 				],
-        "rules": [
-          {
-            "description": "out any external dependencies or side effects",
-            "domain": ["@global"]
-          },
-          {
-            "description": "out any exceptions or errors",
-            "domain": ["domain1"]
-          },
-          {
-            "description": "out any unexpected results",
-            "domain": ["@domain2", "@domain3", "@domain4"]
-          }
-        ]
+				"rules": [
+					{
+						"description": "out any external dependencies or side effects",
+						"domain": ["@global"]
+					},
+					{
+						"description": "out any exceptions or errors",
+						"domain": ["domain1"]
+					},
+					{
+						"description": "out any unexpected results",
+						"domain": ["@domain2", "@domain3", "@domain4"]
+					}
+				]
 			}
 		]
 	}

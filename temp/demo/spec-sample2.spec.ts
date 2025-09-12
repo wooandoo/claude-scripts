@@ -1,4 +1,4 @@
-import { describe, it } from 'vitest';
+import { describe, it } from "vitest";
 
 /**
  * A simple sample test to verify the testing setup.
@@ -6,8 +6,8 @@ import { describe, it } from 'vitest';
  * @tag sample
  * @tag basic
  */
-describe('sample test', () => {
-  it('should pass too', () => {
+describe("sample test", () => {
+  it("should pass too", () => {
     // GIVEN a condition
     // AND some initial setup
 
@@ -27,7 +27,7 @@ describe('sample test', () => {
     expect(true).toBe(true);
   });
 
-  it('should be OK', () => {
+  it("should be OK", () => {
     // GIVEN a condition
 
     // WHEN an action is performed

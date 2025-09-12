@@ -1,4 +1,4 @@
-import { describe, it } from 'vitest';
+import { describe, it } from "vitest";
 
 /**
  * A simple sample test to verify the testing setup.
@@ -6,8 +6,8 @@ import { describe, it } from 'vitest';
  * @tag sample
  * @tag basic
  */
-describe('sample test', () => {
-  it('should pass', () => {
+describe("sample test", () => {
+  it("should pass", () => {
     // GIVEN a condition
     // AND some initial setup
 

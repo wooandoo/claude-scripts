@@ -13,7 +13,7 @@ interface TestCase {
   name: string;
   given: string[];
   when: string[];
-  then: string[];
+  then_statements: string[];
   rules: Rule[];
 }
 
@@ -57,7 +57,7 @@ export function specExtract(): Command {
 
         // Output the JSON
         const json_output = JSON.stringify(extracted_data, null, 2);
-        
+
         if (command_options.stdout) {
           // Output to console
           console.log(json_output);
@@ -139,7 +139,7 @@ function extract_spec_info(file_path: string, verbose: boolean = false): SpecInf
 
     // Extract describe block name
     const describe_match = file_content.match(/describe\s*\(\s*['"`]([^'"`]+)['"`]/);
-    const test_suite_name = describe_match ? describe_match[1] : "";
+    const test_suite_name = describe_match?.[1] ?? "";
 
     // Extract test cases with their Given/When/Then structure
     const test_cases = extract_test_cases(file_content);
@@ -167,8 +167,8 @@ function extract_test_cases(file_content: string): TestCase[] {
 
   match = it_regex.exec(file_content);
   while (match !== null) {
-    const test_name = match[1];
-    const test_body = match[2];
+    const test_name = match[1] ?? "";
+    const test_body = match[2] ?? "";
 
     const given_statements = extract_statements(test_body, "GIVEN");
     const when_statements = extract_statements(test_body, "WHEN");
@@ -179,10 +179,10 @@ function extract_test_cases(file_content: string): TestCase[] {
       name: test_name,
       given: given_statements,
       when: when_statements,
-      "then": then_statements,
+      then_statements: then_statements,
       rules: rules,
     });
-    
+
     match = it_regex.exec(file_content);
   }
 
@@ -192,12 +192,12 @@ function extract_test_cases(file_content: string): TestCase[] {
 function extract_statements(test_body: string, keyword: string): string[] {
   const statements: string[] = [];
   const lines = test_body.split("\n");
-  
+
   let in_section = false;
-  
+
   for (const line of lines) {
     const trimmed = line.trim();
-    
+
     if (trimmed.startsWith(`// ${keyword} `)) {
       in_section = true;
       const statement = trimmed.replace(`// ${keyword} `, "");
@@ -223,32 +223,35 @@ function extract_statements(test_body: string, keyword: string): string[] {
 function extract_rules(test_body: string): Rule[] {
   const rules: Rule[] = [];
   const lines = test_body.split("\n");
-  
+
   for (const line of lines) {
     const trimmed = line.trim();
-    
+
     // Match RULE: description or RULE(domain): description
     const rule_match = trimmed.match(/^\/\/ RULE(?:\(([^)]+)\))?: (.+)$/);
-    
+
     if (rule_match) {
       const domain_part = rule_match[1];
-      const description = rule_match[2];
-      
+      const description = rule_match[2] ?? "";
+
       let domains: string[];
       if (domain_part) {
         // Parse domain(s) - could be comma separated
-        domains = domain_part.split(',').map(d => d.trim()).map(d => `@${d}`);
+        domains = domain_part
+          .split(",")
+          .map((d) => d.trim())
+          .map((d) => `@${d}`);
       } else {
         // No domain specified, use @global
         domains = ["@global"];
       }
-      
+
       rules.push({
         description: description,
-        domain: domains
+        domain: domains,
       });
     }
   }
-  
+
   return rules;
 }
