@@ -1,0 +1,33 @@
+{
+	"spec-sample.spec.ts": {
+		"name": "sample test",
+		"description": "A simple sample test to verify the testing setup.\nThis test checks that basic arithmetic works as expected.",
+		"tags": ["sample", "basic"],
+
+		"cases": [
+			{
+				"name": "should pass",
+				"given": ["a condition", "some initial setup"],
+				"when": ["an action is performed", "some processing is done"],
+				"then": [
+					"expect the result to be as expected",
+					"other assertions can be made"
+				],
+        "rules": [
+          {
+            "description": "out any external dependencies or side effects",
+            "domain": ["@global"]
+          },
+          {
+            "description": "out any exceptions or errors",
+            "domain": ["domain1"]
+          },
+          {
+            "description": "out any unexpected results",
+            "domain": ["@domain2", "@domain3", "@domain4"]
+          }
+        ]
+			}
+		]
+	}
+}
