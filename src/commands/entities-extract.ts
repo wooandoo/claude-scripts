@@ -1,48 +1,8 @@
+import { readdirSync, statSync, writeFileSync } from "node:fs";
+import { extname, join, relative } from "node:path";
 import { Command } from "commander";
-import { readdirSync, statSync, readFileSync, writeFileSync } from "fs";
-import { join, relative, extname } from "path";
-
-interface EntityInfo {
-  name: string;
-  tableName: string;
-  columns: ColumnInfo[];
-  primaryKeys: string[];
-  foreignKeys: ForeignKeyInfo[];
-  indexes: IndexInfo[];
-  checks: CheckInfo[];
-}
-
-interface ColumnInfo {
-  name: string;
-  type: string;
-  nullable: boolean;
-  defaultValue?: string;
-  primaryKey: boolean;
-  unique: boolean;
-  references?: {
-    table: string;
-    column: string;
-  };
-}
-
-interface ForeignKeyInfo {
-  columns: string[];
-  references: {
-    table: string;
-    columns: string[];
-  };
-}
-
-interface IndexInfo {
-  name: string;
-  columns: string[];
-  unique: boolean;
-}
-
-interface CheckInfo {
-  name: string;
-  expression: string;
-}
+import type { DrizzleParsingOptions, EnhancedEntityInfo } from "../lib/drizzle-ast-parser.js";
+import { DrizzleASTParser } from "../lib/drizzle-ast-parser.js";
 
 function find_schema_files(directory: string, verbose = false): string[] {
   const schema_files: string[] = [];
@@ -57,16 +17,11 @@ function find_schema_files(directory: string, verbose = false): string[] {
       if (stat.isDirectory()) {
         scan_directory(full_path);
       } else if (stat.isFile()) {
-        // Check for schema files: .ts files that likely contain Drizzle schema
-        if (extname(entry) === '.ts') {
-          const content = readFileSync(full_path, 'utf-8');
-          // Look for Drizzle table definitions
-          if (content.includes('Table') && 
-              (content.includes('pgTable') || content.includes('mysqlTable') || content.includes('sqliteTable'))) {
-            schema_files.push(full_path);
-            if (verbose) {
-              console.log(`Found schema file: ${full_path}`);
-            }
+        // Check for TypeScript files that likely contain Drizzle schema
+        if (extname(entry) === ".ts") {
+          schema_files.push(full_path);
+          if (verbose) {
+            console.log(`Found TypeScript file: ${full_path}`);
           }
         }
       }
@@ -84,58 +39,55 @@ function find_schema_files(directory: string, verbose = false): string[] {
   return schema_files;
 }
 
-function extract_entities_from_file(file_path: string, verbose = false): EntityInfo[] {
-  const content = readFileSync(file_path, 'utf-8');
-  const entities: EntityInfo[] = [];
-
+async function extract_entities_from_file(
+  file_path: string,
+  options: DrizzleParsingOptions,
+  verbose = false,
+): Promise<EnhancedEntityInfo[]> {
   try {
-    // Improved parser to handle multiline table definitions
-    // Look for table definitions and extract the complete column block
-    const table_start_regex = /export\s+const\s+(\w+)\s*=\s*(pg|mysql|sqlite)Table\s*\(\s*['"`]([^'"`]+)['"`]\s*,\s*\{/g;
-    let match;
-    
-    while ((match = table_start_regex.exec(content)) !== null) {
-      const [full_match, variable_name, dialect, table_name] = match;
-      const start_pos = match.index + full_match.length - 1; // Position of opening {
-      
-      // Find the matching closing brace
-      let brace_count = 1;
-      let end_pos = start_pos + 1;
-      
-      while (end_pos < content.length && brace_count > 0) {
-        if (content[end_pos] === '{') {
-          brace_count++;
-        } else if (content[end_pos] === '}') {
-          brace_count--;
+    if (verbose) {
+      console.log(`Parsing with AST: ${file_path}`);
+    }
+
+    const parser = new DrizzleASTParser(options);
+    const entities = await parser.parseFile(file_path);
+
+    if (verbose && entities.length > 0) {
+      console.log(`  Found ${entities.length} entities:`);
+      for (const entity of entities) {
+        console.log(`    - ${entity.name} (${entity.tableName}) [${entity.entityType}]`);
+        console.log(
+          `      Columns: ${entity.columns.length}, PKs: ${entity.primaryKeys.length}, FKs: ${entity.columns.filter((c) => c.references).length}`,
+        );
+        if (entity.relations && entity.relations.length > 0) {
+          console.log(`      Relations: ${entity.relations.length}`);
+          for (const relation of entity.relations) {
+            const selfRef = relation.isSelfReferencing ? " (self-ref)" : "";
+            const relationName = relation.relationName ? ` [${relation.relationName}]` : "";
+            
+            // Format many-to-many relations with final target
+            if (relation.type === 'many-to-many' && relation.finalTarget && relation.junctionTable) {
+              console.log(`        - ${relation.name}: ${relation.type} → ${relation.finalTarget} (via ${relation.junctionTable})${selfRef}${relationName}`);
+            } else {
+              console.log(`        - ${relation.name}: ${relation.type} → ${relation.relatedTable}${selfRef}${relationName}`);
+            }
+          }
         }
-        end_pos++;
-      }
-      
-      if (brace_count === 0) {
-        const columns_content = content.substring(start_pos + 1, end_pos - 1);
-        
-        if (verbose) {
-          console.log(`Found table: ${variable_name} -> ${table_name}`);
-          console.log(`Columns content: ${columns_content.substring(0, 100)}...`);
+        if (entity.auditColumns && Object.keys(entity.auditColumns).length > 0) {
+          try {
+            const auditFields = Object.entries(entity.auditColumns || {})
+              .filter(([_, value]) => value)
+              .map(([key, value]) => `${key}: ${value}`)
+              .join(", ");
+            console.log(`      Audit: ${auditFields}`);
+          } catch (error) {
+            console.error(`Error processing audit columns for ${entity.name}:`, error);
+            console.error('auditColumns value:', entity.auditColumns);
+          }
         }
-        
-        const entity: EntityInfo = {
-          name: variable_name,
-          tableName: table_name,
-          columns: extract_columns_from_content(columns_content, verbose),
-          primaryKeys: [],
-          foreignKeys: [],
-          indexes: [],
-          checks: []
-        };
-        
-        // Extract additional constraints if present
-        extract_constraints(columns_content, entity, verbose);
-        
-        entities.push(entity);
       }
     }
-    
+
     return entities;
   } catch (error) {
     if (verbose) {
@@ -145,116 +97,212 @@ function extract_entities_from_file(file_path: string, verbose = false): EntityI
   }
 }
 
-function extract_columns_from_content(columns_content: string, verbose = false): ColumnInfo[] {
-  const columns: ColumnInfo[] = [];
-  
-  // Improved parsing to handle Drizzle column definitions
-  // Split by commas but be careful with nested parentheses
-  const lines = columns_content.split('\n').map(line => line.trim()).filter(line => line.length > 0);
-  
-  for (const line of lines) {
-    // Match column definition: columnName: columnType(params).methods()
-    const column_match = line.match(/^(\w+):\s*(.+?)(?:,\s*$|$)/);
-    if (!column_match) continue;
-    
-    const [, column_name, column_definition] = column_match;
-    
-    const column: ColumnInfo = {
-      name: column_name,
-      type: extract_base_type(column_definition),
-      nullable: !column_definition.includes('.notNull()'),
-      primaryKey: column_definition.includes('.primaryKey()'),
-      unique: column_definition.includes('.unique()'),
-      defaultValue: extract_default_value(column_definition)
+interface ExtractedData {
+  entities: Record<string, EnhancedEntityInfo[]>;
+  metadata: {
+    totalEntities: number;
+    totalFiles: number;
+    entityTypes: Record<string, number>;
+    relationStats: {
+      totalRelations: number;
+      relationTypes: Record<string, number>;
+      selfReferencing: number;
+      entitiesWithRelations: number;
     };
-    
-    // Check for references
-    const references_match = column_definition.match(/\.references\(\s*\(\)\s*=>\s*(\w+)\.(\w+)/);
-    if (references_match) {
-      column.references = {
-        table: references_match[1],
-        column: references_match[2]
-      };
+    commonPatterns: {
+      auditColumns: string[];
+      softDeletes: number;
+      foreignKeys: number;
+    };
+  };
+}
+
+function analyze_extracted_data(data: Record<string, EnhancedEntityInfo[]>): ExtractedData["metadata"] {
+  const allEntities = Object.values(data).flat();
+  const entityTypes: Record<string, number> = {};
+  const auditColumnsSet = new Set<string>();
+  let softDeletes = 0;
+  let foreignKeys = 0;
+
+  // Relations statistics
+  const relationTypes: Record<string, number> = {};
+  let totalRelations = 0;
+  let selfReferencing = 0;
+  let entitiesWithRelations = 0;
+
+  for (const entity of allEntities) {
+    // Count entity types
+    if (entity.entityType) {
+      entityTypes[entity.entityType] = (entityTypes[entity.entityType] || 0) + 1;
     }
-    
-    columns.push(column);
-    
-    if (verbose) {
-      console.log(`  Column: ${column_name} (${column.type})`);
+
+    // Collect audit columns
+    if (entity.auditColumns) {
+      Object.values(entity.auditColumns || {}).forEach((col) => {
+        if (col) auditColumnsSet.add(col);
+      });
+      if (entity.auditColumns.deletedAt) softDeletes++;
+    }
+
+    // Count foreign keys
+    foreignKeys += entity.columns.filter((col) => col.references).length;
+
+    // Count relations
+    if (entity.relations && entity.relations.length > 0) {
+      entitiesWithRelations++;
+      totalRelations += entity.relations.length;
+
+      for (const relation of entity.relations) {
+        relationTypes[relation.type] = (relationTypes[relation.type] || 0) + 1;
+        if (relation.isSelfReferencing) {
+          selfReferencing++;
+        }
+      }
     }
   }
-  
-  return columns;
-}
 
-function extract_base_type(definition: string): string {
-  // Extract the base type from the column definition
-  const type_match = definition.match(/^(\w+)/);
-  return type_match ? type_match[1] : 'unknown';
-}
-
-function extract_default_value(definition: string): string | undefined {
-  const default_match = definition.match(/\.default\(([^)]+)\)/);
-  return default_match ? default_match[1] : undefined;
-}
-
-function extract_constraints(table_definition: string, entity: EntityInfo, verbose = false): void {
-  // Look for primary key constraints
-  entity.primaryKeys = entity.columns.filter(col => col.primaryKey).map(col => col.name);
-  
-  // This is a simplified implementation
-  // A full implementation would parse composite keys, foreign keys, indexes, etc.
+  return {
+    totalEntities: allEntities.length,
+    totalFiles: Object.keys(data).length,
+    entityTypes,
+    relationStats: {
+      totalRelations,
+      relationTypes,
+      selfReferencing,
+      entitiesWithRelations,
+    },
+    commonPatterns: {
+      auditColumns: Array.from(auditColumnsSet),
+      softDeletes,
+      foreignKeys,
+    },
+  };
 }
 
 export function entitiesExtract(): Command {
   const entities_extract_command = new Command("entities:extract");
 
   entities_extract_command
-    .description("Extract entity information from Drizzle schema files and generate a JSON file")
+    .description("Extract entity information from Drizzle schema files using AST analysis")
     .argument("<path>", "Path to schema file or directory containing schema files")
     .option("-o, --output <file>", "Output JSON file path", "entities.json")
     .option("--stdout", "Output to console instead of file")
     .option("-v, --verbose", "Enable verbose output")
-    .action((path, command_options) => {
+    .option("--no-comments", "Exclude comments from extraction")
+    .option("--no-analysis", "Skip functional analysis (classification, audit detection)")
+    .option("--no-patterns", "Skip pattern analysis")
+    .option("--no-relations", "Skip relations extraction")
+    .option("--format <format>", "Output format: json, yaml, or markdown", "json")
+    .option("--include-metadata", "Include analysis metadata in output")
+    .action(async (path, command_options) => {
       try {
         const schema_files = find_schema_files(path, command_options.verbose);
 
         if (schema_files.length === 0) {
-          console.log("No Drizzle schema files found in the specified path.");
+          console.log("No TypeScript files found in the specified path.");
           return;
         }
 
-        const extracted_data: Record<string, EntityInfo[]> = {};
+        // Configure parsing options
+        const parsing_options: DrizzleParsingOptions = {
+          includeComments: !command_options.noComments,
+          analyzePatterns: !command_options.noPatterns,
+          classifyEntities: !command_options.noAnalysis,
+          detectAuditColumns: !command_options.noAnalysis,
+          extractRelations: !command_options.noRelations,
+        };
+
+        const extracted_entities: Record<string, EnhancedEntityInfo[]> = {};
 
         for (const schema_file_path of schema_files) {
           if (command_options.verbose) {
             console.log(`Processing: ${schema_file_path}`);
           }
 
-          const relative_path = relative(path, schema_file_path);
-          const entities = extract_entities_from_file(schema_file_path, command_options.verbose);
+          let relative_path = relative(path, schema_file_path);
+          // If relative path is empty (when path is the same as the file), use the file name
+          if (relative_path === '') {
+            relative_path = schema_file_path.split('/').pop() || schema_file_path;
+          }
+          const entities = await extract_entities_from_file(schema_file_path, parsing_options, command_options.verbose);
 
           if (entities.length > 0) {
-            extracted_data[relative_path] = entities;
+            extracted_entities[relative_path] = entities;
           }
         }
 
-        // Output the JSON
-        const json_output = JSON.stringify(extracted_data, null, 2);
+        // Prepare output data
+        let output_data: ExtractedData | Record<string, EnhancedEntityInfo[]> = extracted_entities;
+
+        if (command_options.includeMetadata) {
+          output_data = {
+            entities: extracted_entities,
+            metadata: analyze_extracted_data(extracted_entities),
+          };
+        }
+
+        // Format output
+        let formatted_output: string;
+        switch (command_options.format.toLowerCase()) {
+          case "yaml":
+            // Simple YAML-like format (would need yaml library for proper YAML)
+            formatted_output = JSON.stringify(output_data, null, 2)
+              .replace(/"/g, "")
+              .replace(/,/g, "")
+              .replace(/\{/g, "")
+              .replace(/\}/g, "");
+            break;
+          case "markdown":
+            // For markdown format, we need metadata, so create it if not present
+            if (command_options.includeMetadata) {
+              formatted_output = format_as_markdown(output_data as ExtractedData);
+            } else {
+              const dataWithMetadata: ExtractedData = {
+                entities: output_data as Record<string, EnhancedEntityInfo[]>,
+                metadata: analyze_extracted_data(output_data as Record<string, EnhancedEntityInfo[]>),
+              };
+              formatted_output = format_as_markdown(dataWithMetadata);
+            }
+            break;
+          default:
+            formatted_output = JSON.stringify(output_data, null, 2);
+        }
 
         if (command_options.stdout) {
           // Output to console
-          console.log(json_output);
+          console.log(formatted_output);
           if (command_options.verbose) {
-            const total_entities = Object.values(extracted_data).flat().length;
-            console.error(`Extraction completed. ${total_entities} entities found in ${Object.keys(extracted_data).length} files.`);
+            const total_entities = Object.values(extracted_entities).flat().length;
+            console.error(`Extraction completed. ${total_entities} entities found in ${Object.keys(extracted_entities).length} files.`);
           }
         } else {
           // Output to file
-          writeFileSync(command_options.output, json_output, "utf-8");
-          const total_entities = Object.values(extracted_data).flat().length;
-          console.log(`Extraction completed. ${total_entities} entities found in ${Object.keys(extracted_data).length} files.`);
+          writeFileSync(command_options.output, formatted_output, "utf-8");
+          const total_entities = Object.values(extracted_entities).flat().length;
+          console.log(`Extraction completed. ${total_entities} entities found in ${Object.keys(extracted_entities).length} files.`);
           console.log(`Output written to: ${command_options.output}`);
+
+          if (command_options.includeMetadata) {
+            const metadata = analyze_extracted_data(extracted_entities);
+            console.log(
+              `Entity types: ${Object.entries(metadata.entityTypes || {})
+                .map(([type, count]) => `${type}: ${count}`)
+                .join(", ")}`,
+            );
+            if (metadata.relationStats?.totalRelations > 0) {
+              console.log(
+                `Relations found: ${metadata.relationStats.totalRelations} total (${Object.entries(metadata.relationStats.relationTypes || {})
+                  .map(([type, count]) => `${type}: ${count}`)
+                  .join(", ")})`,
+              );
+              if (metadata.relationStats.selfReferencing > 0) {
+                console.log(`Self-referencing relations: ${metadata.relationStats.selfReferencing}`);
+              }
+            }
+            if (metadata.commonPatterns.softDeletes > 0) {
+              console.log(`Soft deletes detected: ${metadata.commonPatterns.softDeletes} entities`);
+            }
+          }
         }
       } catch (error) {
         console.error(`Error: ${(error as Error).message}`);
@@ -263,4 +311,94 @@ export function entitiesExtract(): Command {
     });
 
   return entities_extract_command;
+}
+
+function format_as_markdown(data: ExtractedData): string {
+  let markdown = "# Drizzle Schema Analysis\n\n";
+
+  // Metadata section
+  if (data.metadata) {
+    markdown += "## Summary\n\n";
+    markdown += `- **Total Entities**: ${data.metadata.totalEntities}\n`;
+    markdown += `- **Total Files**: ${data.metadata.totalFiles}\n`;
+    markdown += `- **Total Relations**: ${data.metadata.relationStats.totalRelations}\n`;
+    markdown += `- **Entities with Relations**: ${data.metadata.relationStats.entitiesWithRelations}\n`;
+    markdown += `- **Foreign Keys**: ${data.metadata.commonPatterns.foreignKeys}\n`;
+    if (data.metadata.commonPatterns.softDeletes > 0) {
+      markdown += `- **Soft Deletes**: ${data.metadata.commonPatterns.softDeletes}\n`;
+    }
+    if (data.metadata.relationStats.selfReferencing > 0) {
+      markdown += `- **Self-Referencing Relations**: ${data.metadata.relationStats.selfReferencing}\n`;
+    }
+    markdown += "\n";
+
+    // Entity types breakdown
+    if (data.metadata.entityTypes && Object.keys(data.metadata.entityTypes).length > 0) {
+      markdown += "## Entity Types\n\n";
+      for (const [type, count] of Object.entries(data.metadata.entityTypes)) {
+        markdown += `- **${type}**: ${count}\n`;
+      }
+      markdown += "\n";
+    }
+
+    // Relation types breakdown
+    if (data.metadata.relationStats?.relationTypes && Object.keys(data.metadata.relationStats.relationTypes).length > 0) {
+      markdown += "## Relation Types\n\n";
+      for (const [type, count] of Object.entries(data.metadata.relationStats.relationTypes)) {
+        markdown += `- **${type}**: ${count}\n`;
+      }
+      markdown += "\n";
+    }
+  }
+
+  // Entities section
+  markdown += "## Entities\n\n";
+
+  for (const [file, entities] of Object.entries(data.entities || {})) {
+    markdown += `### ${file}\n\n`;
+
+    for (const entity of entities) {
+      markdown += `#### ${entity.name} → \`${entity.tableName}\`\n\n`;
+      markdown += `- **Type**: ${entity.entityType || "unknown"}\n`;
+      markdown += `- **Columns**: ${entity.columns.length}\n`;
+      markdown += `- **Primary Keys**: ${entity.primaryKeys.join(", ") || "none"}\n`;
+
+      const fkColumns = entity.columns.filter((col) => col.references);
+      if (fkColumns.length > 0) {
+        markdown += `- **Foreign Keys**: ${fkColumns.map((col) => `${col.name} → ${col.references?.table}.${col.references?.column}`).join(", ")}\n`;
+      }
+
+      if (entity.relations && entity.relations.length > 0) {
+        markdown += `- **Relations** (${entity.relations.length}):\n`;
+        for (const relation of entity.relations) {
+          const selfRef = relation.isSelfReferencing ? " _(self-referencing)_" : "";
+          const relationName = relation.relationName ? ` \`[${relation.relationName}]\`` : "";
+          const fields = relation.fields ? ` (${relation.fields.join(", ")})` : "";
+          
+          // Format many-to-many relations with final target
+          if (relation.type === 'many-to-many' && relation.finalTarget && relation.junctionTable) {
+            markdown += `  - **${relation.name}**: ${relation.type} → **${relation.finalTarget}** _(via ${relation.junctionTable})_${fields}${selfRef}${relationName}\n`;
+          } else {
+            markdown += `  - **${relation.name}**: ${relation.type} → ${relation.relatedTable}${fields}${selfRef}${relationName}\n`;
+          }
+        }
+      }
+
+      if (entity.auditColumns && Object.keys(entity.auditColumns).length > 0) {
+        const auditInfo = Object.entries(entity.auditColumns || {})
+          .filter(([_, value]) => value)
+          .map(([key, value]) => `${key}: ${value}`)
+          .join(", ");
+        markdown += `- **Audit Columns**: ${auditInfo}\n`;
+      }
+
+      if (entity.comments) {
+        markdown += `- **Comments**: ${entity.comments}\n`;
+      }
+
+      markdown += "\n";
+    }
+  }
+
+  return markdown;
 }

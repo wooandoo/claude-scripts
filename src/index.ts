@@ -2,8 +2,8 @@
 
 import { Command } from "commander";
 import { change } from "./commands/change.js";
-import { userStoriesExtract } from "./commands/user-stories-extract.js";
 import { entitiesExtract } from "./commands/entities-extract.js";
+import { userStoriesExtract } from "./commands/user-stories-extract.js";
 
 // --- Commander.js CLI setup ---
 const program = new Command();

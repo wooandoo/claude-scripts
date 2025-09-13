@@ -14,7 +14,8 @@
 		"check:biome": "biome check --write"
 	},
 	"dependencies": {
-		"commander": "^14.0.0"
+		"commander": "^14.0.0",
+		"ts-morph": "^27.0.0"
 	},
 	"devDependencies": {
 		"@biomejs/biome": "^2.2.3",
