@@ -1,3 +1,4 @@
 /node_modules
 /changes
 /.idea/copilot.data.migration.*.xml
+/.serena/

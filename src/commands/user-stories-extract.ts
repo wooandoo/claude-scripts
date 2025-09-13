@@ -22,8 +22,8 @@ interface Rule {
   domain: string[];
 }
 
-export function specExtract(): Command {
-  const spec_extract_command = new Command("spec:extract");
+export function userStoriesExtract(): Command {
+  const spec_extract_command = new Command("user-stories:extract");
 
   spec_extract_command
     .description("Extract information from .spec.ts files in a directory and generate a JSON file")
