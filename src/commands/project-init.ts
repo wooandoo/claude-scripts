@@ -52,7 +52,6 @@ export function projectInit(): Command {
         } else {
           console.log("MCP configuration initialized: .mcp.json");
         }
-
       } catch (error) {
         console.error(`Error: ${(error as Error).message}`);
         process.exit(1);

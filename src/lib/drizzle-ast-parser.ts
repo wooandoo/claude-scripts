@@ -352,7 +352,7 @@ export class DrizzleASTParser {
 
   private async parseColumnMethods(initialCallExpr: CallExpression, column: EnhancedColumnInfo): Promise<void> {
     // Start from the property assignment and walk up to find the full chain
-    const propertyAssignment = initialCallExpr.getFirstAncestor(n => Node.isPropertyAssignment(n));
+    const propertyAssignment = initialCallExpr.getFirstAncestor((n) => Node.isPropertyAssignment(n));
     if (!propertyAssignment) return;
 
     const initializer = propertyAssignment.getInitializer();
@@ -388,7 +388,7 @@ export class DrizzleASTParser {
         column.defaultValue = "NOW()";
         break;
       case "references":
-        this.parseReferences(expr).then(ref => {
+        this.parseReferences(expr).then((ref) => {
           if (ref) column.references = ref;
         });
         break;
@@ -475,7 +475,7 @@ export class DrizzleASTParser {
         .map((comment) => {
           const text = comment.getText();
           let lines: string[] = [];
-          
+
           // Handle JSDoc comments (/** ... */)
           if (text.startsWith("/**")) {
             lines = text
@@ -494,29 +494,29 @@ export class DrizzleASTParser {
           else {
             lines = [text.replace(/\/\//g, "")];
           }
-          
+
           // Process lines: trim each line
-          const processedLines = lines.map(line => line.trim());
-          
+          const processedLines = lines.map((line) => line.trim());
+
           // Remove leading and trailing empty lines
-          while (processedLines.length > 0 && processedLines[0] === '') {
+          while (processedLines.length > 0 && processedLines[0] === "") {
             processedLines.shift();
           }
-          while (processedLines.length > 0 && processedLines[processedLines.length - 1] === '') {
+          while (processedLines.length > 0 && processedLines[processedLines.length - 1] === "") {
             processedLines.pop();
           }
-          
-          if (processedLines.length === 0) return '';
-          
+
+          if (processedLines.length === 0) return "";
+
           // Group consecutive non-empty lines, with empty lines creating breaks
           const paragraphs: string[] = [];
           let currentParagraph: string[] = [];
-          
+
           for (const line of processedLines) {
-            if (line === '') {
+            if (line === "") {
               // Empty line - finish current paragraph if it has content
               if (currentParagraph.length > 0) {
-                paragraphs.push(currentParagraph.join(' '));
+                paragraphs.push(currentParagraph.join(" "));
                 currentParagraph = [];
               }
             } else {
@@ -524,17 +524,17 @@ export class DrizzleASTParser {
               currentParagraph.push(line);
             }
           }
-          
+
           // Add final paragraph if it exists
           if (currentParagraph.length > 0) {
-            paragraphs.push(currentParagraph.join(' '));
+            paragraphs.push(currentParagraph.join(" "));
           }
-          
+
           // Join paragraphs with single \n
-          return paragraphs.join('\n');
+          return paragraphs.join("\n");
         })
         .filter((comment) => comment.length > 0)
-        .join('\n');
+        .join("\n");
     }
 
     return undefined;
@@ -547,17 +547,13 @@ export class DrizzleASTParser {
     // Many-to-many junction tables (transactional-many-to-many)
     // Look for tables with "To" in the name or typical junction table patterns
     const foreignKeyCount = entity.columns.filter((col) => col.references).length;
-    const hasJunctionPattern = name.includes("to") || name.includes("_to_") || 
-                              tableName.includes("_to_") || tableName.includes("to");
-    
+    const hasJunctionPattern = name.includes("to") || name.includes("_to_") || tableName.includes("_to_") || tableName.includes("to");
+
     // Also detect by having multiple ID columns that are likely foreign keys
-    const idColumns = entity.columns.filter((col) => 
-      col.name.toLowerCase().endsWith("id") && 
-      col.name.toLowerCase() !== "id"
-    );
-    
+    const idColumns = entity.columns.filter((col) => col.name.toLowerCase().endsWith("id") && col.name.toLowerCase() !== "id");
+
     if (
-      (hasJunctionPattern || idColumns.length >= 2) && 
+      (hasJunctionPattern || idColumns.length >= 2) &&
       entity.columns.length <= 6 && // Usually junction tables are small
       !entity.primaryKeys.length // Most junction tables don't have their own primary key
     ) {
@@ -670,7 +666,7 @@ export class DrizzleASTParser {
 
     // Parse each relation property
     const properties = objectLiteral.getProperties();
-    
+
     for (const prop of properties) {
       if (Node.isPropertyAssignment(prop)) {
         const relation = this.parseRelationProperty(prop as PropertyAssignment);
@@ -821,61 +817,56 @@ export class DrizzleASTParser {
 
   private resolveManyToManyRelations(entities: EnhancedEntityInfo[]): void {
     // Create a map of entities by name for quick lookup
-    const entitiesMap = new Map(entities.map(e => [e.name, e]));
+    const entitiesMap = new Map(entities.map((e) => [e.name, e]));
 
     // Find junction tables (many-to-many tables)
-    const junctionTables = entities.filter(e => e.entityType === 'transactional-many-to-many');
+    const junctionTables = entities.filter((e) => e.entityType === "transactional-many-to-many");
 
     for (const junctionTable of junctionTables) {
       // Get the foreign keys of the junction table (explicit references)
-      const foreignKeys = junctionTable.columns.filter(col => col.references);
-      
+      const foreignKeys = junctionTable.columns.filter((col) => col.references);
+
       // If no explicit foreign keys, infer from ID columns
       let relatedTables: string[] = [];
       if (foreignKeys.length >= 2) {
-        relatedTables = foreignKeys.map(fk => fk.references!.table);
+        relatedTables = foreignKeys.map((fk) => fk.references!.table);
       } else {
         // Infer from ID columns (e.g., userId -> users, postId -> posts)
-        const idColumns = junctionTable.columns.filter(col => 
-          col.name.toLowerCase().endsWith("id") && 
-          col.name.toLowerCase() !== "id"
-        );
-        
+        const idColumns = junctionTable.columns.filter((col) => col.name.toLowerCase().endsWith("id") && col.name.toLowerCase() !== "id");
+
         for (const idCol of idColumns) {
           const colName = idCol.name.toLowerCase();
           // Try to match: userId -> users, postId -> posts, categoryId -> categories
           let tableName = colName.replace("id", "");
-          
+
           // Handle plural forms
           if (tableName.endsWith("y")) {
             tableName = tableName.slice(0, -1) + "ies"; // category -> categories
           } else {
             tableName += "s"; // user -> users, post -> posts
           }
-          
+
           // Check if this table exists
           if (entitiesMap.has(tableName)) {
             relatedTables.push(tableName);
           }
         }
       }
-      
+
       // Now update the many-to-many relations
       if (relatedTables.length >= 2) {
         for (let i = 0; i < relatedTables.length; i++) {
           const sourceTableName = relatedTables[i];
           if (!sourceTableName) continue;
           const sourceEntity = entitiesMap.get(sourceTableName);
-          
+
           if (sourceEntity?.relations) {
             // Find the relation that points to this junction table
-            const junctionRelation = sourceEntity.relations.find(r => 
-              r.relatedTable === junctionTable.name && r.type === 'many-to-many'
-            );
-            
+            const junctionRelation = sourceEntity.relations.find((r) => r.relatedTable === junctionTable.name && r.type === "many-to-many");
+
             if (junctionRelation) {
               // Find the other table as the final target
-              const otherTable = relatedTables.find(table => table !== sourceTableName);
+              const otherTable = relatedTables.find((table) => table !== sourceTableName);
               if (otherTable) {
                 junctionRelation.finalTarget = otherTable;
                 junctionRelation.junctionTable = junctionTable.name;
